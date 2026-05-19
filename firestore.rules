@@ -1,0 +1,68 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ──────────────────────────────────────────────
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return request.auth.uid == uid;
+    }
+
+    function getRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isTeacher() {
+      return getRole() == 'teacher';
+    }
+
+    function isStudent() {
+      return getRole() == 'student';
+    }
+
+    // ── Users ─────────────────────────────────────────────────
+    match /users/{uid} {
+      allow read:   if isAuth();
+      allow create: if isOwner(uid);
+      allow update: if isOwner(uid);
+      allow delete: if false;
+    }
+
+    // ── Classes ───────────────────────────────────────────────
+    match /classes/{classId} {
+      // Anyone logged in can read classes (needed for join by code)
+      allow read: if isAuth();
+
+      // Only teachers can create classes
+      allow create: if isAuth() && isTeacher();
+
+      // Teacher who owns class OR any student can update (for joining)
+      allow update: if isAuth() && (
+        resource.data.teacherId == request.auth.uid ||
+        isStudent()
+      );
+
+      allow delete: if isAuth() && resource.data.teacherId == request.auth.uid;
+    }
+
+    // ── Assignments ───────────────────────────────────────────
+    match /assignments/{assignmentId} {
+      // Students can read their own; teachers can read all in their class
+      allow read: if isAuth() && (
+        resource.data.studentId == request.auth.uid ||
+        isTeacher()
+      );
+
+      // Students can submit assignments
+      allow create: if isAuth() && isStudent();
+
+      // Only teachers can update (to add remarks / change status)
+      allow update: if isAuth() && isTeacher();
+
+      allow delete: if false;
+    }
+  }
+}

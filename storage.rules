@@ -1,0 +1,16 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ── Assignment files ──────────────────────────────────────
+    match /assignments/{classId}/{studentId}/{fileName} {
+      // Authenticated users can read any assignment file
+      allow read: if request.auth != null;
+
+      // Students can only upload to their own folder
+      allow write: if request.auth != null
+        && request.auth.uid == studentId
+        && request.resource.size < 20 * 1024 * 1024;  // Max 20 MB
+    }
+  }
+}
