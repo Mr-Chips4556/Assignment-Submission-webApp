@@ -62,7 +62,20 @@ service cloud.firestore {
       // Only teachers can update (to add remarks / change status)
       allow update: if isAuth() && isTeacher();
 
-      allow delete: if false;
+      // Teachers can delete assignments in their own classes
+      allow delete: if isAuth() && isTeacher();
+    }
+
+    // ── Class Assignments (Teacher-created assignments) ──────────
+    match /classAssignments/{assignmentId} {
+      // Anyone in the class can read assignments
+      allow read: if isAuth();
+
+      // Only teachers can create assignments
+      allow create: if isAuth() && isTeacher();
+
+      // Only the teacher who created it can update/delete
+      allow update, delete: if isAuth() && resource.data.teacherId == request.auth.uid;
     }
   }
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, addDoc, serverTimestamp, query, where, onSnapshot, orderBy } from "firebase/firestore";
 import { db } from "../firebase/config";
 import { useAuth } from "../contexts/AuthContext";
 import Navbar from "../components/Navbar";
@@ -14,7 +14,7 @@ export default function ClassPageEnhanced() {
     const navigate = useNavigate();
     const [cls, setCls] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState(role === "student" ? "upload" : "submissions");
+    const [activeTab, setActiveTab] = useState(role === "student" ? "assignments" : "submissions");
 
     useEffect(() => {
         const load = async () => {
@@ -42,11 +42,14 @@ export default function ClassPageEnhanced() {
 
     const tabs = role === "student"
         ? [
+            { id: "assignments", label: "View Assignments", icon: "📋" },
             { id: "upload", label: "Submit Assignment", icon: "📤" },
-            { id: "submissions", label: "My Submissions", icon: "📋" }
+            { id: "submissions", label: "My Submissions", icon: "📊" }
         ]
         : [
             { id: "submissions", label: "All Submissions", icon: "📋" },
+            { id: "assignments", label: "Create Assignment", icon: "📝" },
+            { id: "students", label: "Class Management", icon: "👥" },
             { id: "analytics", label: "Analytics", icon: "📊" }
         ];
 
@@ -56,7 +59,7 @@ export default function ClassPageEnhanced() {
             <div className="main-content">
                 {/* Breadcrumb */}
                 <button
-                    onClick={() => navigate(-1)}
+                    onClick={() => navigate(role === "teacher" ? "/teacher" : "/student")}
                     className="flex items-center gap-1.5 text-slate-500 hover:text-slate-300 text-sm font-body mb-6 transition-colors"
                 >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -128,15 +131,468 @@ export default function ClassPageEnhanced() {
                 <div className="animate-fade-up" style={{ animationDelay: "0.2s" }}>
                     {role === "student" ? (
                         <>
+                            {activeTab === "assignments" && <ViewAssignments classId={classId} />}
                             {activeTab === "upload" && <UploadAssignmentOptimized classId={classId} />}
                             {activeTab === "submissions" && <StudentSubmissionsEnhanced classId={classId} />}
                         </>
                     ) : (
                         <>
                             {activeTab === "submissions" && <TeacherSubmissionsEnhanced classId={classId} />}
+                            {activeTab === "assignments" && <CreateAssignment classId={classId} />}
+                            {activeTab === "students" && <ClassManagement classId={classId} cls={cls} />}
                             {activeTab === "analytics" && <ClassAnalytics classId={classId} />}
                         </>
                     )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// Create Assignment component for teachers
+function CreateAssignment({ classId }) {
+    const { currentUser, userProfile } = useAuth();
+    const [title, setTitle] = useState("");
+    const [description, setDescription] = useState("");
+    const [totalMarks, setTotalMarks] = useState("");
+    const [dueDate, setDueDate] = useState("");
+    const [attachmentFile, setAttachmentFile] = useState(null);
+    const [creating, setCreating] = useState(false);
+    const [error, setError] = useState("");
+    const [success, setSuccess] = useState("");
+
+    const handleFileChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            // Validate file size (max 10MB for assignment files)
+            if (file.size > 10 * 1024 * 1024) {
+                setError("File too large. Maximum size is 10MB.");
+                return;
+            }
+            setAttachmentFile(file);
+            setError("");
+        }
+    };
+
+    const handleCreateAssignment = async (e) => {
+        e.preventDefault();
+        if (!title.trim() || !description.trim() || !totalMarks) {
+            setError("Please fill in all required fields.");
+            return;
+        }
+
+        setCreating(true);
+        setError("");
+        setSuccess("");
+
+        try {
+            const assignmentData = {
+                classId,
+                teacherId: currentUser.uid,
+                teacherName: userProfile?.name ?? "Unknown Teacher",
+                title: title.trim(),
+                description: description.trim(),
+                totalMarks: parseInt(totalMarks),
+                dueDate: dueDate ? new Date(dueDate).toISOString() : null,
+                hasAttachment: !!attachmentFile,
+                attachmentName: attachmentFile?.name || null,
+                createdAt: serverTimestamp(),
+                status: "active"
+            };
+
+            // For now, we'll store the assignment without file upload
+            // In a full implementation, you'd upload the file to Firebase Storage first
+            await addDoc(collection(db, "classAssignments"), assignmentData);
+
+            setSuccess("Assignment created successfully!");
+            setTitle("");
+            setDescription("");
+            setTotalMarks("");
+            setDueDate("");
+            setAttachmentFile(null);
+
+            // Reset file input
+            const fileInput = document.getElementById("assignment-file");
+            if (fileInput) fileInput.value = "";
+
+        } catch (error) {
+            console.error("Error creating assignment:", error);
+            setError("Failed to create assignment. Please try again.");
+        } finally {
+            setCreating(false);
+        }
+    };
+
+    return (
+        <div className="space-y-6">
+            <div className="card p-6">
+                <h3 className="font-display font-bold text-white text-lg mb-4">Create New Assignment</h3>
+
+                {error && (
+                    <div className="mb-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+                        ⚠️ {error}
+                    </div>
+                )}
+
+                {success && (
+                    <div className="mb-4 px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm">
+                        ✅ {success}
+                    </div>
+                )}
+
+                <form onSubmit={handleCreateAssignment} className="space-y-4">
+                    {/* Assignment Title */}
+                    <div>
+                        <label className="block text-xs font-display font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                            Assignment Title *
+                        </label>
+                        <input
+                            type="text"
+                            required
+                            placeholder="e.g., Math Homework Chapter 5"
+                            value={title}
+                            onChange={(e) => setTitle(e.target.value)}
+                            className="input-field"
+                        />
+                    </div>
+
+                    {/* Assignment Description */}
+                    <div>
+                        <label className="block text-xs font-display font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                            Description & Instructions *
+                        </label>
+                        <textarea
+                            required
+                            rows={4}
+                            placeholder="Provide detailed instructions for the assignment..."
+                            value={description}
+                            onChange={(e) => setDescription(e.target.value)}
+                            className="input-field resize-none"
+                        />
+                    </div>
+
+                    {/* Total Marks and Due Date */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-display font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                                Total Marks *
+                            </label>
+                            <input
+                                type="number"
+                                required
+                                min="1"
+                                max="1000"
+                                placeholder="e.g., 100"
+                                value={totalMarks}
+                                onChange={(e) => setTotalMarks(e.target.value)}
+                                className="input-field"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-display font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                                Due Date (Optional)
+                            </label>
+                            <input
+                                type="datetime-local"
+                                value={dueDate}
+                                onChange={(e) => setDueDate(e.target.value)}
+                                className="input-field"
+                            />
+                        </div>
+                    </div>
+
+                    {/* File Attachment */}
+                    <div>
+                        <label className="block text-xs font-display font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                            Attachment (Optional)
+                        </label>
+                        <input
+                            id="assignment-file"
+                            type="file"
+                            onChange={handleFileChange}
+                            accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.png,.jpg,.jpeg"
+                            className="input-field"
+                        />
+                        {attachmentFile && (
+                            <p className="text-emerald-400 text-sm mt-2">
+                                📎 {attachmentFile.name} ({(attachmentFile.size / (1024 * 1024)).toFixed(2)} MB)
+                            </p>
+                        )}
+                    </div>
+
+                    {/* Submit Button */}
+                    <button
+                        type="submit"
+                        disabled={creating}
+                        className="btn-primary w-full py-3"
+                    >
+                        {creating ? (
+                            <><Spinner /> Creating Assignment...</>
+                        ) : (
+                            <>
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                </svg>
+                                Create Assignment
+                            </>
+                        )}
+                    </button>
+                </form>
+            </div>
+        </div>
+    );
+}
+
+// View Assignments component for students
+function ViewAssignments({ classId }) {
+    const [assignments, setAssignments] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const q = query(
+            collection(db, "classAssignments"),
+            where("classId", "==", classId),
+            where("status", "==", "active"),
+            orderBy("createdAt", "desc")
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const assignmentList = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+            setAssignments(assignmentList);
+            setLoading(false);
+        });
+
+        return unsubscribe;
+    }, [classId]);
+
+    if (loading) {
+        return (
+            <div className="space-y-4">
+                <div className="skeleton h-32 rounded-xl" />
+                <div className="skeleton h-32 rounded-xl" />
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-6">
+            <div className="card p-6">
+                <h3 className="font-display font-bold text-white text-lg mb-4">
+                    Class Assignments ({assignments.length})
+                </h3>
+
+                {assignments.length === 0 ? (
+                    <div className="text-center py-8">
+                        <div className="text-4xl mb-3">📝</div>
+                        <p className="text-slate-400 font-display font-semibold">No assignments yet</p>
+                        <p className="text-slate-600 text-sm mt-1">Your teacher hasn't assigned any work yet.</p>
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        {assignments.map((assignment) => (
+                            <div key={assignment.id} className="card p-5 border border-slate-700/60">
+                                <div className="flex items-start justify-between mb-3">
+                                    <div className="flex-1">
+                                        <h4 className="font-display font-semibold text-white text-lg">
+                                            {assignment.title}
+                                        </h4>
+                                        <p className="text-slate-500 text-sm mt-1">
+                                            By {assignment.teacherName} • {assignment.totalMarks} marks
+                                        </p>
+                                    </div>
+                                    {assignment.dueDate && (
+                                        <div className="text-right">
+                                            <p className="text-xs text-slate-600">Due Date</p>
+                                            <p className="text-amber-400 text-sm font-mono">
+                                                {new Date(assignment.dueDate).toLocaleDateString()}
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="mb-4">
+                                    <p className="text-slate-300 text-sm leading-relaxed">
+                                        {assignment.description}
+                                    </p>
+                                </div>
+
+                                {assignment.hasAttachment && (
+                                    <div className="mb-4 p-3 bg-slate-800/40 rounded-lg">
+                                        <p className="text-slate-400 text-xs mb-1">Attachment</p>
+                                        <p className="text-ink-400 text-sm">
+                                            📎 {assignment.attachmentName}
+                                        </p>
+                                    </div>
+                                )}
+
+                                <div className="flex items-center justify-between pt-3 border-t border-slate-800/60">
+                                    <div className="flex items-center gap-4">
+                                        <span className="badge bg-ink-500/10 text-ink-400 border border-ink-500/20">
+                                            📊 {assignment.totalMarks} marks
+                                        </span>
+                                        <span className="text-slate-500 text-xs">
+                                            Created {assignment.createdAt?.toDate ?
+                                                assignment.createdAt.toDate().toLocaleDateString() :
+                                                'recently'
+                                            }
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function Spinner() {
+    return (
+        <svg className="w-4 h-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+        </svg>
+    );
+}
+
+// Class management component for teachers
+function ClassManagement({ classId, cls }) {
+    const [activeStudents, setActiveStudents] = useState([]);
+    const [leftStudents, setLeftStudents] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const loadStudentData = async () => {
+            setLoading(true);
+            try {
+                // Get active students
+                const activeStudentIds = cls.studentIds || [];
+                const activeStudentData = [];
+
+                for (const studentId of activeStudentIds) {
+                    try {
+                        const studentDoc = await getDoc(doc(db, "users", studentId));
+                        if (studentDoc.exists()) {
+                            activeStudentData.push({
+                                id: studentId,
+                                ...studentDoc.data()
+                            });
+                        }
+                    } catch (error) {
+                        console.error("Error fetching student data:", error);
+                    }
+                }
+
+                setActiveStudents(activeStudentData);
+                setLeftStudents(cls.leftStudents || []);
+            } catch (error) {
+                console.error("Error loading student data:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        if (cls) {
+            loadStudentData();
+        }
+    }, [cls, classId]);
+
+    if (loading) {
+        return (
+            <div className="space-y-4">
+                <div className="skeleton h-32 rounded-xl" />
+                <div className="skeleton h-32 rounded-xl" />
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-6">
+            {/* Active Students */}
+            <div className="card p-6">
+                <h3 className="font-display font-bold text-white text-lg mb-4">
+                    Active Students ({activeStudents.length})
+                </h3>
+
+                {activeStudents.length === 0 ? (
+                    <div className="text-center py-8">
+                        <div className="text-3xl mb-2">👥</div>
+                        <p className="text-slate-400">No active students</p>
+                    </div>
+                ) : (
+                    <div className="grid gap-3">
+                        {activeStudents.map((student) => (
+                            <div key={student.id} className="flex items-center gap-3 p-3 bg-slate-800/40 rounded-lg">
+                                <div className="w-8 h-8 rounded-full bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-sm font-bold text-emerald-300">
+                                    {student.name?.[0]?.toUpperCase() || "?"}
+                                </div>
+                                <div className="flex-1">
+                                    <p className="font-display font-medium text-white text-sm">
+                                        {student.name || "Unknown Student"}
+                                    </p>
+                                    <p className="text-slate-500 text-xs">{student.email}</p>
+                                </div>
+                                <span className="badge bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs">
+                                    Active
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Students Who Left */}
+            {leftStudents.length > 0 && (
+                <div className="card p-6">
+                    <h3 className="font-display font-bold text-white text-lg mb-4">
+                        Students Who Left ({leftStudents.length})
+                    </h3>
+
+                    <div className="grid gap-3">
+                        {leftStudents.map((student, index) => (
+                            <div key={index} className="flex items-center gap-3 p-3 bg-slate-800/40 rounded-lg">
+                                <div className="w-8 h-8 rounded-full bg-red-600/20 border border-red-500/30 flex items-center justify-center text-sm font-bold text-red-300">
+                                    {student.studentName?.[0]?.toUpperCase() || "?"}
+                                </div>
+                                <div className="flex-1">
+                                    <p className="font-display font-medium text-white text-sm">
+                                        {student.studentName || "Unknown Student"}
+                                    </p>
+                                    <p className="text-slate-500 text-xs">
+                                        Left on {new Date(student.leftAt).toLocaleDateString()}
+                                    </p>
+                                </div>
+                                <span className="badge bg-red-500/10 text-red-400 border border-red-500/20 text-xs">
+                                    Left
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Class Statistics */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="card p-4 text-center">
+                    <div className="text-2xl mb-1">👥</div>
+                    <div className="font-mono font-bold text-white text-xl">{activeStudents.length}</div>
+                    <div className="text-slate-500 text-xs">Active Students</div>
+                </div>
+                <div className="card p-4 text-center">
+                    <div className="text-2xl mb-1">🚪</div>
+                    <div className="font-mono font-bold text-white text-xl">{leftStudents.length}</div>
+                    <div className="text-slate-500 text-xs">Students Left</div>
+                </div>
+                <div className="card p-4 text-center">
+                    <div className="text-2xl mb-1">📊</div>
+                    <div className="font-mono font-bold text-white text-xl">
+                        {activeStudents.length + leftStudents.length}
+                    </div>
+                    <div className="text-slate-500 text-xs">Total Enrolled</div>
                 </div>
             </div>
         </div>

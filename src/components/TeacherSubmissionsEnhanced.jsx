@@ -14,6 +14,7 @@ export default function TeacherSubmissionsEnhanced({ classId }) {
     const [selectedSubmissions, setSelectedSubmissions] = useState(new Set());
     const [remarkOpen, setRemarkOpen] = useState(null);
     const [remarkText, setRemarkText] = useState("");
+    const [marksGiven, setMarksGiven] = useState("");
     const [saving, setSaving] = useState(false);
     const [previewFile, setPreviewFile] = useState(null);
     const [bulkRemarkText, setBulkRemarkText] = useState("");
@@ -37,17 +38,26 @@ export default function TeacherSubmissionsEnhanced({ classId }) {
     const openRemark = (sub) => {
         setRemarkOpen(sub.id);
         setRemarkText(sub.remarks ?? "");
+        setMarksGiven(sub.marksGiven ?? "");
     };
 
     const saveRemark = async (subId) => {
         setSaving(true);
         try {
-            await updateDoc(doc(db, "assignments", subId), {
+            const updateData = {
                 remarks: remarkText.trim(),
                 status: "reviewed",
-            });
+            };
+
+            // Add marks if provided
+            if (marksGiven.trim()) {
+                updateData.marksGiven = parseInt(marksGiven) || 0;
+            }
+
+            await updateDoc(doc(db, "assignments", subId), updateData);
             setRemarkOpen(null);
             setRemarkText("");
+            setMarksGiven("");
         } catch (e) {
             console.error(e);
         } finally {
@@ -322,37 +332,76 @@ export default function TeacherSubmissionsEnhanced({ classId }) {
                                             </div>
                                         </div>
 
-                                        {/* Existing remarks */}
-                                        {sub.remarks && remarkOpen !== sub.id && (
+                                        {/* Existing remarks and marks */}
+                                        {(sub.remarks || sub.marksGiven) && remarkOpen !== sub.id && (
                                             <div className="mt-3 pt-3 border-t border-slate-800/60">
-                                                <p className="text-xs font-display font-semibold text-slate-600 uppercase tracking-wider mb-1">Remarks</p>
-                                                <p className="text-slate-300 text-sm">💬 {sub.remarks}</p>
+                                                <div className="flex items-start justify-between gap-4">
+                                                    <div className="flex-1">
+                                                        {sub.remarks && (
+                                                            <>
+                                                                <p className="text-xs font-display font-semibold text-slate-600 uppercase tracking-wider mb-1">Remarks</p>
+                                                                <p className="text-slate-300 text-sm">💬 {sub.remarks}</p>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                    {sub.marksGiven !== undefined && (
+                                                        <div className="text-right">
+                                                            <p className="text-xs font-display font-semibold text-slate-600 uppercase tracking-wider mb-1">Marks</p>
+                                                            <span className="badge bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                                                📊 {sub.marksGiven} marks
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
                                         )}
 
-                                        {/* Remark editor */}
+                                        {/* Remark and marks editor */}
                                         {remarkOpen === sub.id && (
                                             <div className="mt-4 pt-4 border-t border-ink-500/20 animate-fade-in">
                                                 <label className="block text-xs font-display font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                                                    Remarks for {sub.studentName}
+                                                    Grade & Feedback for {sub.studentName}
                                                 </label>
-                                                <textarea
-                                                    rows={3}
-                                                    value={remarkText}
-                                                    onChange={(e) => setRemarkText(e.target.value)}
-                                                    placeholder="Write your feedback here…"
-                                                    className="input-field resize-none"
-                                                />
-                                                <div className="flex gap-2 mt-2">
+
+                                                {/* Marks input */}
+                                                <div className="mb-3">
+                                                    <label className="block text-xs text-slate-500 mb-1">Marks Awarded</label>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        placeholder="Enter marks (e.g., 85)"
+                                                        value={marksGiven}
+                                                        onChange={(e) => setMarksGiven(e.target.value)}
+                                                        className="input-field w-32"
+                                                    />
+                                                </div>
+
+                                                {/* Remarks textarea */}
+                                                <div className="mb-3">
+                                                    <label className="block text-xs text-slate-500 mb-1">Feedback & Comments</label>
+                                                    <textarea
+                                                        rows={3}
+                                                        value={remarkText}
+                                                        onChange={(e) => setRemarkText(e.target.value)}
+                                                        placeholder="Write your feedback here…"
+                                                        className="input-field resize-none"
+                                                    />
+                                                </div>
+
+                                                <div className="flex gap-2">
                                                     <button
                                                         onClick={() => saveRemark(sub.id)}
-                                                        disabled={saving || !remarkText.trim()}
+                                                        disabled={saving || (!remarkText.trim() && !marksGiven.trim())}
                                                         className="btn-primary text-xs px-4 py-2"
                                                     >
-                                                        {saving ? <><Spinner /> Saving…</> : "Save Remarks"}
+                                                        {saving ? <><Spinner /> Saving…</> : "Save Grade & Feedback"}
                                                     </button>
                                                     <button
-                                                        onClick={() => { setRemarkOpen(null); setRemarkText(""); }}
+                                                        onClick={() => {
+                                                            setRemarkOpen(null);
+                                                            setRemarkText("");
+                                                            setMarksGiven("");
+                                                        }}
                                                         className="btn-secondary text-xs px-4 py-2"
                                                     >
                                                         Cancel

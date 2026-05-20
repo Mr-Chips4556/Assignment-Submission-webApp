@@ -183,15 +183,24 @@ export default function StudentSubmissionsEnhanced({ classId }) {
                                         </div>
                                     </div>
 
-                                    {/* Remarks */}
-                                    {sub.remarks && (
+                                    {/* Remarks and Marks */}
+                                    {(sub.remarks || sub.marksGiven !== undefined) && (
                                         <div className="mt-4 pt-4 border-t border-slate-800/60">
-                                            <p className="text-xs font-display font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                                                Teacher&apos;s Remarks
-                                            </p>
-                                            <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-4 py-3">
-                                                <p className="text-slate-300 text-sm">💬 {sub.remarks}</p>
+                                            <div className="flex items-start justify-between gap-4 mb-2">
+                                                <p className="text-xs font-display font-semibold text-slate-500 uppercase tracking-wider">
+                                                    Teacher&apos;s Feedback
+                                                </p>
+                                                {sub.marksGiven !== undefined && (
+                                                    <span className="badge bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs">
+                                                        📊 {sub.marksGiven} marks
+                                                    </span>
+                                                )}
                                             </div>
+                                            {sub.remarks && (
+                                                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-4 py-3">
+                                                    <p className="text-slate-300 text-sm">💬 {sub.remarks}</p>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 

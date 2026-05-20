@@ -216,8 +216,13 @@ export default function UploadAssignmentOptimized({ classId }) {
                 await uploadFile(fileItem);
             }
 
-            const completedCount = files.filter(f => f.status === 'completed').length;
-            setSuccess(`${completedCount} file${completedCount !== 1 ? 's' : ''} uploaded successfully!`);
+            // Count successful uploads
+            const completedFiles = files.filter(f => f.status === 'completed');
+            const newlyCompleted = pendingFiles.length; // All pending files should now be completed
+
+            if (newlyCompleted > 0) {
+                setSuccess(`Assignment${newlyCompleted !== 1 ? 's' : ''} submitted successfully! 🎉`);
+            }
 
             // Clear completed files after a delay
             setTimeout(() => {

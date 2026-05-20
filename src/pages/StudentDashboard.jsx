@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
-  collection, query, where, getDocs, doc, getDoc, updateDoc, arrayUnion
+  collection, query, where, getDocs, doc, getDoc, updateDoc, arrayUnion, arrayRemove
 } from "firebase/firestore";
 import { db } from "../firebase/config";
 import { useAuth } from "../contexts/AuthContext";
@@ -15,6 +15,7 @@ export default function StudentDashboard() {
   const [joinError, setJoinError] = useState("");
   const [joinSuccess, setJoinSuccess] = useState("");
   const [loading, setLoading] = useState(true);
+  const [leaving, setLeaving] = useState(null); // Track which class is being left
 
   // Load enrolled classes
   const loadClasses = async () => {
@@ -99,6 +100,51 @@ export default function StudentDashboard() {
     }
   };
 
+  // Leave class function
+  const handleLeaveClass = async (classToLeave) => {
+    const confirmMessage = `Are you sure you want to leave "${classToLeave.name}"?\n\nYou will:\n• No longer receive assignments from this class\n• Not be able to submit new assignments\n• Your previous submissions will remain with the teacher\n\nYou can rejoin later with the class code.`;
+
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
+    setLeaving(classToLeave.id);
+    try {
+      // Remove student from class studentIds array
+      await updateDoc(doc(db, "classes", classToLeave.id), {
+        studentIds: arrayRemove(currentUser.uid),
+      });
+
+      // Add to leftStudents array to track who left (for teacher visibility)
+      const classDoc = await getDoc(doc(db, "classes", classToLeave.id));
+      const classData = classDoc.data();
+      const leftStudents = classData.leftStudents || [];
+
+      // Add student info to leftStudents if not already there
+      const studentInfo = {
+        studentId: currentUser.uid,
+        studentName: userProfile?.name ?? "Unknown Student",
+        leftAt: new Date().toISOString()
+      };
+
+      if (!leftStudents.some(s => s.studentId === currentUser.uid)) {
+        await updateDoc(doc(db, "classes", classToLeave.id), {
+          leftStudents: arrayUnion(studentInfo)
+        });
+      }
+
+      // Reload classes to update UI
+      loadClasses();
+
+      console.log(`Successfully left class "${classToLeave.name}"`);
+    } catch (error) {
+      console.error("Error leaving class:", error);
+      alert("Failed to leave class. Please try again.");
+    } finally {
+      setLeaving(null);
+    }
+  };
+
   return (
     <div className="page-container">
       <Navbar />
@@ -141,16 +187,39 @@ export default function StudentDashboard() {
             ) : (
               <div className="space-y-3">
                 {classes.map((cls) => (
-                  <Link
+                  <div
                     key={cls.id}
-                    to={`/student/class/${cls.id}`}
-                    className="card-hover p-5 flex items-center justify-between group stagger-child"
+                    className="card p-5 flex items-center justify-between group stagger-child relative"
                   >
-                    <div className="flex items-center gap-4">
+                    {/* Leave button */}
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleLeaveClass(cls);
+                      }}
+                      disabled={leaving === cls.id}
+                      className="absolute top-3 right-3 w-8 h-8 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 flex items-center justify-center text-red-400 hover:text-red-300 transition-all duration-200 opacity-0 group-hover:opacity-100"
+                      title="Leave class"
+                    >
+                      {leaving === cls.id ? (
+                        <Spinner />
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                        </svg>
+                      )}
+                    </button>
+
+                    {/* Class content - clickable link */}
+                    <Link
+                      to={`/student/class/${cls.id}`}
+                      className="flex items-center gap-4 flex-1 group-hover:opacity-90 transition-opacity"
+                    >
                       <div className="w-11 h-11 rounded-xl bg-ink-600/20 border border-ink-500/30 flex items-center justify-center text-xl">
                         🏫
                       </div>
-                      <div>
+                      <div className="flex-1">
                         <p className="font-display font-semibold text-white group-hover:text-ink-300 transition-colors">
                           {cls.name}
                         </p>
@@ -159,11 +228,12 @@ export default function StudentDashboard() {
                           <span className="font-mono text-xs text-slate-600">{cls.code}</span>
                         </p>
                       </div>
-                    </div>
+                    </Link>
+
                     <svg className="w-5 h-5 text-slate-600 group-hover:text-ink-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
-                  </Link>
+                  </div>
                 ))}
               </div>
             )}
